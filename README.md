@@ -139,8 +139,7 @@ python algorithm_select/select_main.py --train_mode ppo --target_m_id 0
 ### 4. Inference & evaluation
 
 ```bash
-python algorithm_select/inference_engine(加载json版本且数据随机化分).py
-python algorithm_select/plot_best_expert_heatmap.py
+python algorithm_select/inference_engine.py
 ```
 
 ## 📊 Test Split

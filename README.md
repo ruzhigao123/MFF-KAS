@@ -8,7 +8,7 @@ Official implementation of **MFF-KAS** (CDFG + AST + Text fusion experts with **
 
 - **Part 1 — MFF:** Seven modality-specific QoR regressors (all non-empty subsets of `{CDFG, AST, Text}`), each with five metric heads (Latency, LUT, FF, DSP, BRAM).
 - **Part 2 — KAS:** Per–QoR-metric policy that selects one frozen expert per unseen kernel at inference time (PPO or supervised training on validation best-expert labels).
-
+  架构图.jpg
 **Benchmarks:** MachSuite + PolyBench (22 kernels; 7 held-out test kernels marked † in the paper).
 
 ## Repository layout

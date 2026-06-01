@@ -1,126 +1,162 @@
 # MFF-KAS: Multimodal Feature Fusion and Kernel-Aware Selection for HLS QoR Prediction
 
-Official implementation of **MFF-KAS** (CDFG + AST + Text fusion experts with **K**ernel-**A**ware expert **S**election via PPO).
+Official implementation of **MFF-KAS** — seven multimodal fusion experts (CDFG + AST + Text) with **K**ernel-**A**ware expert **S**election (KAS) for FPGA HLS QoR prediction.
 
-> **Note:** The anonymous review link may point to an older repository name (`HEGNN-RCSAC`). This repo contains the MFF-KAS code used in our paper. Please cite the paper and use this repository URL after publication.
+## 📋 Content
 
-## Overview
+- [About the Project](#-about-the-project)
+- [Contribution](#-contribution)
+- [Project File Tree](#-project-file-tree)
+- [Required Environment](#-required-environment)
+- [Data & Checkpoints](#-data--checkpoints)
+- [Quick Start](#-quick-start)
+- [Test Split](#-test-split)
+- [Citation](#-citation)
 
-- **Part 1 — MFF:** Seven modality-specific QoR regressors (all non-empty subsets of `{CDFG, AST, Text}`), each with five metric heads (Latency, LUT, FF, DSP, BRAM).
-- **Part 2 — KAS:** Per–QoR-metric policy that selects one frozen expert per unseen kernel at inference time (PPO or supervised training on validation best-expert labels).
-/架构图.jpg
-**Benchmarks:** MachSuite + PolyBench (22 kernels; 7 held-out test kernels marked † in the paper).
+## 🎯 About the Project
 
-## Repository layout
+This repository provides an end-to-end framework for **HLS QoR prediction** on MachSuite and PolyBench. Given C/C++ source and pragma configurations, the system builds three parallel representations — **CDFG**, **AST**, and **Text** — and predicts post-synthesis QoR (Latency, LUT, FF, DSP, BRAM) without invoking synthesis for every design point.
+
+**Part 1 (MFF)** trains seven modality-specific fusion experts (all non-empty subsets of `{CDFG, AST, Text}`), each with five metric-specific regression heads sharing one encoder–fusion backbone. **Part 2 (KAS)** learns a per–QoR-metric selector that routes each unseen kernel to the most suitable frozen expert at inference time (PPO on validation best-expert labels).
+
+<p align="center">
+  <img src="架构图.jpg" alt="MFF-KAS framework overview" width="95%">
+</p>
+
+*Figure: Overall pipeline — Part 1 multimodal feature fusion (MFF) and Part 2 kernel-aware expert selection (KAS).*
+
+## 🌟 Contribution
+
+We develop the **MFF-KAS** framework. Main contributions:
+
+### 1. AST-Aware Multimodal Representation
+
+We introduce **AST** as a syntactic complement to CDFG and source Text, preserving pragma–loop associations and hierarchical structure that are hard to retain in graph-only or sequence-only inputs.
+
+### 2. Multimodal Feature Fusion (MFF)
+
+We propose **MFF**, which fuses CDFG, AST, and Text via two-stage multi-head cross-attention and gated residuals, and systematically evaluates all **seven** non-empty modality subsets as separate fusion experts.
+
+### 3. Kernel-Aware Selector (KAS)
+
+Because no single fixed fusion dominates all kernels and QoR metrics, we train **KAS** to adaptively select among seven pretrained experts per unseen kernel and metric, improving cross-kernel generalization over fixed trimodal fusion and SOTA predictors.
+
+## 📂 Project File Tree
 
 ```
-MPM-Innovation-master/
-├── src/                    # Expert training & inference (GNN + CodeBERT + MFF)
-│   ├── config.py           # Global flags, kernels, paths
-│   ├── model.py            # Net / multimodal fusion
-│   ├── train.py            # Training & inference loops
-│   ├── main.py             # Entry point (train / inference / DSE)
-│   └── comp_model/         # Baseline encoders (GNN-DSE, MPM-style, etc.)
-├── algorithm_select/       # KAS (selector training & evaluation)
-│   ├── select_main.py                  # Main KAS trainer (PPO / supervised)
-│   ├── select_model.py                 # Selector network
-│   ├── select_dataset.py               # Dataset + labels.json loader
-│   ├── build_labels_from_data_csv.py   # Build labels from expert pred CSVs
-│   ├── inference_engine*.py            # KAS + expert inference pipelines
-│   └── plot_best_expert_heatmap.py     # Fig. 6 style heatmap
-├── data/                   # Expert prediction CSVs (for labels / analysis)
-├── dse_database/           # ProGraML graphs & HLS configs (large; see below)
-└── save_models_and_data/   # Checkpoints (not shipped by default)
-
-> `two_tower_dataset/` and `two_tower_datasets/` (AST `.pt` graphs) are **not** in this repo. See **Data & checkpoints** below.
+MFF-KAS/
+│
+├── 架构图.jpg                 # Framework figure (shown above)
+├── src/                       # Part 1: expert training & inference
+│   ├── config.py              # Global flags, kernels, paths
+│   ├── model.py               # Net / MFF fusion module
+│   ├── train.py               # Training & inference loops
+│   ├── main.py                # Entry point (train / inference)
+│   └── comp_model/            # Baseline encoders (GNN-DSE, MPM, etc.)
+│
+├── algorithm_select/          # Part 2: KAS training & evaluation
+│   ├── select_main.py           # Main KAS trainer (PPO / supervised)
+│   ├── select_model.py          # Selector network
+│   ├── select_dataset.py        # Dataset + labels.json loader
+│   ├── build_labels_from_data_csv.py
+│   ├── inference_engine*.py     # KAS + expert inference
+│   └── plot_best_expert_heatmap.py
+│
+├── data/                      # Expert prediction CSVs (labels / analysis)
+├── dse_database/              # ProGraML graphs & HLS configs (large)
+└── save_models_and_data/      # Expert checkpoints (not shipped by default)
 ```
 
-## Environment
+> `two_tower_dataset/` and `two_tower_datasets/` (AST `.pt` graphs) are **not** included in Git. See [Data & Checkpoints](#-data--checkpoints).
 
-- Python 3.9+ (3.9 recommended)
-- PyTorch 2.x + CUDA (match your GPU driver)
-- [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/) (CDFG / AST GNN)
-- `transformers` + `tokenizers` (CodeBERT)
-- `torch-geometric`, `scikit-learn`, `numpy`, `pandas`, `tqdm`, `networkx`
+## 🔧 Required Environment
+
+### Operating System
+
+- Linux (recommended) or Windows
+
+### Software Dependencies
+
+- **Python:** 3.9+
+- **PyTorch:** 2.x (+ CUDA matching your GPU driver)
+- **PyTorch Geometric:** 2.x (CDFG / AST GNN; see [install guide](https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html))
+- **transformers** + **tokenizers** (CodeBERT)
+- **numpy**, **pandas**, **scikit-learn**, **tqdm**, **networkx**, **requests**
 
 Example install:
 
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-pip install torch-geometric transformers scikit-learn pandas tqdm networkx
-# Install PyG extensions per https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html
+pip install torch-geometric transformers scikit-learn pandas tqdm networkx requests
+# Install PyG wheel extensions per your CUDA version (see PyG docs)
 ```
 
-## Data & checkpoints
+> This is an academic research project. Refer to the paper for methodology and experimental details.
+
+## 📦 Data & Checkpoints
 
 Large artifacts are **not** included in Git:
 
 | Artifact | Location | Notes |
 |----------|----------|--------|
-| ProGraML CDFG / configs | `dse_database/` | Generate or obtain from MachSuite/PolyBench DSE pipeline |
-| AST `.pt` graphs | `two_tower_datasets/code/ast_final_dataset/` (or `two_tower_dataset/`) | **Not in Git** — download separately; place under repo root |
+| ProGraML CDFG / configs | `dse_database/` | MachSuite / PolyBench DSE pipeline |
+| AST `.pt` graphs | `two_tower_datasets/code/ast_final_dataset/` | Download separately; place under repo root |
 | Expert weights | `save_models_and_data/` | One checkpoint per modality subset |
-| KAS policies | `algorithm_select/save/` or paths in scripts | Per-metric selector |
+| KAS policies | `algorithm_select/save/` | Per-metric selector |
 | Expert pred CSVs | `data/regression_model_pred_{train,test}_<expert>.csv` | For `build_labels_from_data_csv.py` |
 
-Contact the authors or open an issue for a data/checkpoint release link if applicable.
+Contact the authors or open an issue for data/checkpoint release links if applicable.
 
-## Quick start (reproduce paper pipeline)
+## 🚀 Quick Start
 
-Run from repository root (`MPM-Innovation-master/`).
+Run from the repository root.
 
 ### 1. Train seven MFF experts
 
-Configure modality / tag in `src/config.py` (or CLI), then:
+Configure modality / tag in `src/config.py`, then:
 
 ```bash
 cd src
-python main.py   # FLAGS.subtask = 'train' in config.py
-# or use train_del_0.py / project-specific training script per expert tag
+python main.py   # set FLAGS.subtask = 'train' in config.py
 ```
 
-Train separately for experts: `all`, `ast`, `cdfg`, `text`, `ast_and_cdfg`, `ast_and_text`, `cdfg_and_text`.
-
-Export train/test predictions to `data/regression_model_pred_{train,test}_<expert>.csv`.
+Train separately for: `all`, `ast`, `cdfg`, `text`, `ast_and_cdfg`, `ast_and_text`, `cdfg_and_text`.  
+Export predictions to `data/regression_model_pred_{train,test}_<expert>.csv`.
 
 ### 2. Build KAS supervision labels
 
 ```bash
 python algorithm_select/build_labels_from_data_csv.py
-# produces labels.json under algorithm_select/ (see script --help)
 ```
 
 ### 3. Train KAS (per QoR metric)
 
 ```bash
 python algorithm_select/select_main.py --train_mode ppo --target_m_id 0
-# target_m_id: 0=Latency(perf), 1=LUT, 2=FF, 3=DSP, 4=BRAM
-# repeat for each metric or set target_m_id in src/config.py
+# 0=Latency(perf), 1=LUT, 2=FF, 3=DSP, 4=BRAM — repeat for each metric
 ```
 
 ### 4. Inference & evaluation
 
 ```bash
 python algorithm_select/inference_engine(加载json版本且数据随机化分).py
-# or the inference script version matching your checkpoint layout
 python algorithm_select/plot_best_expert_heatmap.py
 ```
 
-Kernel-level RMSE tables in the paper use macro-average over seven test kernels:  
-`atax`, `gemm-p`, `gesummv`, `jacobi-1d`, `jacobi-2d`, `nw`, `spmv-ellpack`.
-
-## Test split (paper)
+## 📊 Test Split
 
 | Train pool (15 kernels) | Held-out test (†, 7 kernels) |
-|-------------------------|------------------------------|
+|-------------------------|--------------------------------|
 | adi, aes, bicg, … | atax†, gemm-p†, gesummv†, jacobi-1d†, jacobi-2d†, nw†, spmv-ellpack† |
 
-Train/val split on the 15-kernel pool: **8:2** random split; KAS labels from validation errors (Sec. II-B).
+Train/val on the 15-kernel pool: **8:2** random split; KAS labels from validation errors.
 
-## Citation
+Macro-averaged RMSE in the paper uses **All** = sum of RMSE over Latency, LUT, DSP, FF, and BRAM.
+
+## 📖 Citation
 
 If you use this code, please cite our paper (bibtex TBD after publication).
 
 ## License
 
-Academic research use. See LICENSE file if present; otherwise contact authors.
+Academic research use. Contact the authors for other uses.
